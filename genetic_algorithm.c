@@ -3,9 +3,9 @@
 #include <time.h>
 #include <math.h>
 
-#define N_QUEENS 8
-#define POP_SIZE 100
-#define MUTATION_RATE 0.05
+#define N_QUEENS 32
+#define POP_SIZE 2000
+#define MUTATION_RATE 0.5
 
 // Función auxiliar para simular índices de arreglos negativos como en Python
 int get_python_index(int idx, int max_size) {
@@ -13,38 +13,34 @@ int get_python_index(int idx, int max_size) {
     return idx;
 }
 
-// Genera la población inicial
+// Mezcla un arreglo aleatoriamente (Fisher-Yates) para generar permutaciones válidas
+void shuffle(int *array, int n) {
+    for (int i = n - 1; i > 0; i--) {
+        int j = rand() % (i + 1);
+        int temp = array[i];
+        array[i] = array[j];
+        array[j] = temp;
+    }
+}
+
+// Genera la población inicial usando PERMUTACIONES exclusivas
 void generate_initial_population(int pop[POP_SIZE][N_QUEENS]) {
     for (int i = 0; i < POP_SIZE; i++) {
         for (int j = 0; j < N_QUEENS; j++) {
-            pop[i][j] = rand() % N_QUEENS;
+            pop[i][j] = j;
         }
+        shuffle(pop[i], N_QUEENS);
     }
 }
 
 // Calcula el puntaje de aptitud (fitness score)
+// Optimizada: Ya no calcula colisiones horizontales (que son 0 por defecto).
 double calculate_fitness(int individual[N_QUEENS]) {
     double max_fitness = (N_QUEENS * (N_QUEENS - 1)) / 2.0;
     
-    // Colisiones horizontales
-    int counts[N_QUEENS] = {0};
-    for (int i = 0; i < N_QUEENS; i++) {
-        counts[individual[i]]++;
-    }
-    
-    double horizontal_collisions = 0;
-    for (int i = 0; i < N_QUEENS; i++) {
-        if (counts[i] > 1) {
-            // Cada reina en la fila suma (counts[i] - 1)
-            horizontal_collisions += counts[i] * (counts[i] - 1);
-        }
-    }
-    horizontal_collisions /= 2.0;
-    
-    // Colisiones diagonales
     int left_diagonal[2 * N_QUEENS];
     int right_diagonal[2 * N_QUEENS];
-    for(int i = 0; i < 2 * N_QUEENS; i++) { 
+    for (int i = 0; i < 2 * N_QUEENS; i++) { 
         left_diagonal[i] = 0; 
         right_diagonal[i] = 0; 
     }
@@ -68,54 +64,108 @@ double calculate_fitness(int individual[N_QUEENS]) {
         }
     }
     
-    double fitness_val = max_fitness - (horizontal_collisions + diagonal_collisions);
+    double fitness_val = max_fitness - diagonal_collisions;
     return fitness_val / max_fitness;
 }
 
-// Selecciona los individuos más aptos usando Selección por Ruleta (Roulette Wheel Selection)
+// Selecciona los individuos usando Torneo (Tournament Selection)
 void select_fitted_population(int pop[POP_SIZE][N_QUEENS], double fitness[POP_SIZE], int parents[POP_SIZE][N_QUEENS]) {
-    double total_fitness = 0;
+    int tournament_size = 5;
     for (int i = 0; i < POP_SIZE; i++) {
-        total_fitness += fitness[i];
-    }
-    
-    for (int i = 0; i < POP_SIZE; i++) {
-        double r = ((double)rand() / RAND_MAX) * total_fitness;
-        double current_sum = 0;
-        int selected_idx = POP_SIZE - 1;
-        for (int j = 0; j < POP_SIZE; j++) {
-            current_sum += fitness[j];
-            if (current_sum >= r) {
-                selected_idx = j;
-                break;
+        int best_idx = rand() % POP_SIZE;
+        for (int j = 0; j < tournament_size - 1; j++) {
+            int idx = rand() % POP_SIZE;
+            if (fitness[idx] > fitness[best_idx]) {
+                best_idx = idx;
             }
         }
         for (int k = 0; k < N_QUEENS; k++) {
-            parents[i][k] = pop[selected_idx][k];
+            parents[i][k] = pop[best_idx][k];
         }
     }
 }
 
-// Realiza el cruce de un solo punto entre dos padres
+// Realiza el Cruce de Orden (Order Crossover - OX1)
 void crossover(int parent1[N_QUEENS], int parent2[N_QUEENS], int off1[N_QUEENS], int off2[N_QUEENS]) {
-    int cp = 1 + rand() % (N_QUEENS - 1);
-    for (int i = 0; i < N_QUEENS; i++) {
-        if (i < cp) {
-            off1[i] = parent1[i];
-            off2[i] = parent2[i];
-        } else {
-            off1[i] = parent2[i];
-            off2[i] = parent1[i];
+    // Puntos de corte aleatorios
+    int p1 = rand() % N_QUEENS;
+    int p2 = rand() % N_QUEENS;
+    int start = p1 < p2 ? p1 : p2;
+    int end = p1 > p2 ? p1 : p2;
+    
+    // Arrays para seguimiento (valores de 0 a N-1)
+    int in_off1[N_QUEENS] = {0};
+    int in_off2[N_QUEENS] = {0};
+    
+    for(int i=0; i<N_QUEENS; i++) {
+        off1[i] = -1;
+        off2[i] = -1;
+    }
+    
+    // Paso 1: Copiar sub-secuencia del padre respectivo
+    for (int i = start; i <= end; i++) {
+        off1[i] = parent1[i];
+        in_off1[parent1[i]] = 1;
+        
+        off2[i] = parent2[i];
+        in_off2[parent2[i]] = 1;
+    }
+    
+    // Paso 2: Rellenar circularmente desde el final del corte
+    int p2_idx1 = (end + 1) % N_QUEENS;
+    int off_idx1 = (end + 1) % N_QUEENS;
+    
+    while (1) {
+        int done = 1;
+        for(int i=0; i<N_QUEENS; i++) {
+            if(off1[i] == -1) { done = 0; break; }
         }
+        if(done) break;
+        
+        int gene = parent2[p2_idx1];
+        if (!in_off1[gene]) {
+            off1[off_idx1] = gene;
+            in_off1[gene] = 1;
+            off_idx1 = (off_idx1 + 1) % N_QUEENS;
+        }
+        p2_idx1 = (p2_idx1 + 1) % N_QUEENS;
+    }
+    
+    int p2_idx2 = (end + 1) % N_QUEENS;
+    int off_idx2 = (end + 1) % N_QUEENS;
+    
+    while (1) {
+        int done = 1;
+        for(int i=0; i<N_QUEENS; i++) {
+            if(off2[i] == -1) { done = 0; break; }
+        }
+        if(done) break;
+        
+        int gene = parent1[p2_idx2];
+        if (!in_off2[gene]) {
+            off2[off_idx2] = gene;
+            in_off2[gene] = 1;
+            off_idx2 = (off_idx2 + 1) % N_QUEENS;
+        }
+        p2_idx2 = (p2_idx2 + 1) % N_QUEENS;
     }
 }
 
-// Aplica mutaciones aleatorias a un individuo
+// Mutación por Inversión (Inversion Mutation)
 void mutate(int ind[N_QUEENS]) {
-    for (int i = 0; i < N_QUEENS; i++) {
-        double r = (double)rand() / RAND_MAX;
-        if (r <= MUTATION_RATE) {
-            ind[i] = rand() % N_QUEENS;
+    double r = (double)rand() / RAND_MAX;
+    if (r <= MUTATION_RATE) {
+        int p1 = rand() % N_QUEENS;
+        int p2 = rand() % N_QUEENS;
+        int start = p1 < p2 ? p1 : p2;
+        int end = p1 > p2 ? p1 : p2;
+        
+        while (start < end) {
+            int temp = ind[start];
+            ind[start] = ind[end];
+            ind[end] = temp;
+            start++;
+            end--;
         }
     }
 }
@@ -138,13 +188,13 @@ void visualize_board(int ind[N_QUEENS]) {
 }
 
 int main() {
-    // Inicializar la semilla para los números aleatorios
     srand(time(NULL));
     
-    int population[POP_SIZE][N_QUEENS];
-    double fitness_scores[POP_SIZE];
-    int parents[POP_SIZE][N_QUEENS];
-    int next_generation[POP_SIZE][N_QUEENS];
+    // static para evitar Stack Overflow con poblaciones grandes
+    static int population[POP_SIZE][N_QUEENS];
+    static double fitness_scores[POP_SIZE];
+    static int parents[POP_SIZE][N_QUEENS];
+    static int next_generation[POP_SIZE][N_QUEENS];
     
     printf("Iniciando Algoritmo Genético para %d-Reinas...\n", N_QUEENS);
     clock_t start_time = clock();
@@ -176,14 +226,33 @@ int main() {
         
         select_fitted_population(population, fitness_scores, parents);
         
-        for (int i = 0; i < POP_SIZE; i += 2) {
+        // Elitismo: Mantener al mejor individuo en la pos 0
+        for (int k = 0; k < N_QUEENS; k++) {
+            next_generation[0][k] = population[best_idx][k];
+        }
+        
+        int next_idx = 1;
+        while (next_idx < POP_SIZE) {
             int p1_idx = rand() % POP_SIZE;
             int p2_idx = rand() % POP_SIZE;
             
-            crossover(parents[p1_idx], parents[p2_idx], next_generation[i], next_generation[i+1]);
+            int off1[N_QUEENS], off2[N_QUEENS];
+            crossover(parents[p1_idx], parents[p2_idx], off1, off2);
             
-            mutate(next_generation[i]);
-            mutate(next_generation[i+1]);
+            mutate(off1);
+            mutate(off2);
+            
+            for (int k = 0; k < N_QUEENS; k++) {
+                next_generation[next_idx][k] = off1[k];
+            }
+            next_idx++;
+            
+            if (next_idx < POP_SIZE) {
+                for (int k = 0; k < N_QUEENS; k++) {
+                    next_generation[next_idx][k] = off2[k];
+                }
+                next_idx++;
+            }
         }
         
         for (int i = 0; i < POP_SIZE; i++) {
@@ -194,44 +263,19 @@ int main() {
         
         generation++;
         
-        // Si no hay solución después de un múltiplo de 1000 generaciones, inyectamos diversidad
-        if (generation % 1000 == 0) {
+        // Extinción Masiva: Prevenir estancamiento en óptimos locales
+        if (generation % 500 == 0) {
             printf("Generación %d alcanzada, mejor aptitud hasta ahora: %.4f. Inyectando nuevo material genético...\n", generation, max_fitness);
             
-            // Ordenar por fitness (Selection Sort)
-            int indices[POP_SIZE];
-            for (int i = 0; i < POP_SIZE; i++) indices[i] = i;
-            
-            for (int i = 0; i < POP_SIZE - 1; i++) {
-                int max_idx = i;
-                for (int j = i + 1; j < POP_SIZE; j++) {
-                    if (fitness_scores[indices[j]] > fitness_scores[indices[max_idx]]) {
-                        max_idx = j;
-                    }
-                }
-                int temp = indices[i];
-                indices[i] = indices[max_idx];
-                indices[max_idx] = temp;
+            int best_ind[N_QUEENS];
+            for (int k = 0; k < N_QUEENS; k++) {
+                best_ind[k] = population[best_idx][k];
             }
             
-            // Mantener la mitad superior, reemplazar la inferior con individuos aleatorios
-            int temp_pop[POP_SIZE][N_QUEENS];
-            for (int i = 0; i < POP_SIZE / 2; i++) {
-                for (int j = 0; j < N_QUEENS; j++) {
-                    temp_pop[i][j] = population[indices[i]][j];
-                }
-            }
-            for (int i = POP_SIZE / 2; i < POP_SIZE; i++) {
-                for (int j = 0; j < N_QUEENS; j++) {
-                    temp_pop[i][j] = rand() % N_QUEENS;
-                }
-            }
+            generate_initial_population(population);
             
-            // Copiar la nueva población
-            for (int i = 0; i < POP_SIZE; i++) {
-                for (int j = 0; j < N_QUEENS; j++) {
-                    population[i][j] = temp_pop[i][j];
-                }
+            for (int k = 0; k < N_QUEENS; k++) {
+                population[0][k] = best_ind[k];
             }
         }
     }
