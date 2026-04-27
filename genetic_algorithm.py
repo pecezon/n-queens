@@ -104,8 +104,9 @@ def visualize_board(individual: list):
         print(row_str)
     print()
 
-def run_genetic_algorithm(n_queens: int = 32, population_size: int = 500, mutation_rate: float = 0.1):
-    print(f"Iniciando Algoritmo Genético para {n_queens}-Reinas...")
+def run_genetic_algorithm(n_queens: int = 16, population_size: int = 500, mutation_rate: float = 0.1, verbose: bool = True):
+    if verbose:
+        print(f"Iniciando Algoritmo Genético para {n_queens}-Reinas...")
     start_time = time.time()
     
     # Generación de la población inicial
@@ -123,11 +124,18 @@ def run_genetic_algorithm(n_queens: int = 32, population_size: int = 500, mutati
         
         if max_fitness == 1.0:
             end_time = time.time()
+            exec_time = end_time - start_time
             
-            print(f"\n¡Solución perfecta encontrada en la generación {generation}!")
-            print(f"Tiempo de ejecución: {end_time - start_time:.4f} segundos")
-            visualize_board(best_individual)
-            return best_individual
+            if verbose:
+                print(f"\n¡Solución perfecta encontrada en la generación {generation}!")
+                print(f"Tiempo de ejecución: {exec_time:.4f} segundos")
+                visualize_board(best_individual)
+            
+            return {
+                "solution": best_individual,
+                "time": exec_time,
+                "generation": generation
+            }
         
         # Selección de los individuos mas aptos
         parents = select_fitted_population(population, fitness_scores)
@@ -153,8 +161,10 @@ def run_genetic_algorithm(n_queens: int = 32, population_size: int = 500, mutati
         generation += 1
         
         # Si no hay solución después de un múltiplo de 500 generaciones, inyectamos diversidad genética
-        if generation % 500 == 0:
+        if verbose and generation % 500 == 0:
             print(f"Generación {generation} alcanzada, mejor aptitud hasta ahora: {max_fitness:.4f}. Inyectando nuevo material genético...")
+        
+        if generation % 500 == 0:
             # Extinción Masiva: Para evitar convergencia prematura por clones, mantenemos SOLO al mejor individuo
             # y reemplazamos a todos los demás con sangre completamente nueva.
             best_idx = fitness_scores.index(max_fitness)
@@ -162,5 +172,29 @@ def run_genetic_algorithm(n_queens: int = 32, population_size: int = 500, mutati
             fresh_population = generate_initial_population(population_size - 1, n_queens)
             population = [best_ind] + fresh_population
 
+def run_performance_test(n_queens: int = 16, iterations: int = 30):
+    print(f"Ejecutando {iterations} simulaciones para N={n_queens}...")
+    times = []
+    generations = []
+    
+    for i in range(iterations):
+        result = run_genetic_algorithm(n_queens=n_queens, verbose=False)
+        times.append(result["time"])
+        generations.append(result["generation"])
+        print(f"Simulación {i+1}/{iterations} completada: {result['time']:.4f}s en {result['generation']} gen.")
+    
+    avg_time = sum(times) / iterations
+    avg_gen = sum(generations) / iterations
+    
+    print("\n" + "="*30)
+    print(f"RESULTADOS PARA N={n_queens} ({iterations} ejecuciones)")
+    print("="*30)
+    print(f"Tiempo promedio:      {avg_time:.4f} segundos")
+    print(f"Generación promedio:  {avg_gen:.2f}")
+    print(f"Tiempo mínimo:        {min(times):.4f} segundos")
+    print(f"Tiempo máximo:        {max(times):.4f} segundos")
+    print("="*30)
+
 if __name__ == "__main__":
-    run_genetic_algorithm()
+    # run_genetic_algorithm()
+    run_performance_test(n_queens=8, iterations=30)
